@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#263e35">
+  <title>Asado en marcha · Planificador del evento</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">A<span>●</span></span><div><strong>ASADO<br>EN MARCHA</strong><small>PLANIFICADOR DEL EVENTO</small></div></div>
+      <nav aria-label="Secciones">
+        <button class="nav active" data-view="resumen"><span>◫</span> Panorama</button>
+        <button class="nav" data-view="compras"><span>☷</span> Lista de compras</button>
+        <button class="nav" data-view="produccion"><span>◷</span> Producción y parrilla</button>
+        <button class="nav" data-view="decisiones"><span>◇</span> Por resolver</button>
+      </nav>
+      <div class="rail-bottom"><div class="save-dot"></div><span>Se guarda en este navegador</span><button id="export-btn">Exportar datos ↗</button><label class="import-label" for="import-file">Importar respaldo ↙</label><input id="import-file" type="file" accept="application/json" hidden></div>
+    </aside>
+
+    <main>
+      <header class="top"><div><div class="eyebrow">CATERING · PLAN VIVO</div><h1 id="page-title">Panorama del evento</h1><p id="page-subtitle">Todo lo importante en un solo lugar, sin dar por comprado lo que todavía no está registrado.</p></div><div class="event-pill"><span>☀</span><div><b>Evento</b><small id="event-summary">Comienza 12:00 · fecha por definir</small></div></div></header>
+      <div id="storage-warning" class="note-box" hidden></div>
+      <section id="view-resumen" class="view active">
+        <div class="hero">
+          <div><div class="eyebrow light">EL PLAN, A SIMPLE VISTA</div><h2>Que alcance para todos.<br><em>Y que entre en la parrilla.</em></h2><p>Ajustá invitados, cantidades y tiempos. Las cifras cambian al instante y las dudas siguen a la vista hasta resolverlas.</p><button class="hero-btn" data-goto="produccion">Ver plan de cocción <span>↗</span></button></div>
+          <div class="hero-stat"><span>INVITADOS</span><strong id="hero-guests">55</strong><small>personas previstas</small><div class="hero-rule"></div><span>MENÚ BASE</span><b id="hero-menu">Empanadas · asado · ensaladas · postre</b></div>
+        </div>
+        <div class="section-head"><div><span class="kicker">01 / COBERTURA</span><h2>Los números que importan</h2></div><span class="muted">Cálculos orientativos · editables</span></div>
+        <div class="metrics" id="metrics"></div>
+        <div class="two-col">
+          <section class="panel"><div class="panel-head"><div><span class="kicker">PERSONAS</span><h3>Invitados por grupo</h3></div><span class="tag confirmed">Confirmado</span></div><div class="guest-grid" id="guest-fields"></div><div class="panel-foot">El equivalente adulto se usa sólo para estimar porciones; no cambia el número real de invitados.</div></section>
+          <section class="panel"><div class="panel-head"><div><span class="kicker">CRITERIOS</span><h3>Supuestos de cálculo</h3></div><span class="tag estimated">Estimación</span></div><div class="settings-grid" id="assumptions"></div><div class="panel-foot" id="cooked-note"></div></section>
+        </div>
+        <div class="section-head"><div><span class="kicker">02 / MENÚ</span><h2>Lo que va a la mesa</h2></div><button class="text-btn" data-goto="compras">Editar cantidades →</button></div>
+        <div id="menu-overview" class="menu-overview"></div>
+      </section>
+
+      <section id="view-compras" class="view">
+        <div class="section-head first"><div><span class="kicker">03 / INVENTARIO</span><h2>Lista de compras</h2><p>La meta es lo planificado. “Comprado” y “preparado” sólo cuentan cuando los registrás.</p></div><button class="primary-btn" id="add-item">+ Agregar producto</button></div>
+        <div class="toolbar"><div class="filter-group" id="filters"><button class="active" data-filter="todos">Todos</button><button data-filter="pendientes">Por comprar</button><button data-filter="comprados">Comprados</button><button data-filter="averiguar">Por averiguar</button></div><span id="shopping-summary"></span></div>
+        <div id="shopping-list"></div>
+        <div class="note-box" id="recipe-note"><strong>Dato que falta:</strong> los ingredientes de las empanadas caseras aún no tienen receta ni cantidades. Agregalos cuando definan relleno y tamaño; no se calculan automáticamente.</div>
+      </section>
+
+      <section id="view-produccion" class="view">
+        <div class="section-head first"><div><span class="kicker">04 / FUEGO Y TIEMPO</span><h2>Plan de producción</h2><p>Horarios relativos al primer servicio de parrilla. Los tiempos son estimaciones para ajustar con los cortes reales.</p></div><span class="tag estimated">Plan orientativo</span></div>
+        <div class="two-col controls">
+          <section class="panel"><div class="panel-head"><div><span class="kicker">HORARIO</span><h3>Punto de llegada</h3></div></div><div class="settings-grid"><label>Comienza el evento<input id="event-start" type="time"></label><label>Primer servicio de parrilla <span class="hint">estimado</span><input id="serve-time" type="time"></label></div><div class="panel-foot" id="time-note"></div></section>
+          <section class="panel"><div class="panel-head"><div><span class="kicker">ESPACIO</span><h3>Medidas de la parrilla</h3></div></div><div class="settings-grid"><label>Ancho útil (cm)<input id="grill-width" type="number" min="1" step="1" placeholder="Por medir"></label><label>Fondo útil (cm)<input id="grill-depth" type="number" min="1" step="1" placeholder="Por medir"></label></div><div class="panel-foot" id="space-note"></div></section>
+        </div>
+        <div id="capacity-banner"></div>
+        <div class="section-head"><div><span class="kicker">TANDAS</span><h2>De lo lento a lo rápido</h2></div><button class="text-btn" data-goto="decisiones">Ver decisiones pendientes →</button></div>
+        <div id="production-list"></div>
+        <div class="note-box"><strong>Al mover una tanda:</strong> si terminás un corte antes para liberar espacio, definí cómo mantenerlo caliente de forma segura. Separá utensilios y superficies de carne cruda y cocida. Verificá el punto de cocción antes de servir.</div>
+      </section>
+
+      <section id="view-decisiones" class="view">
+        <div class="section-head first"><div><span class="kicker">05 / DECISIONES</span><h2>Por resolver</h2><p>Guardá lo que falta definir. Una decisión no se convierte en dato confirmado hasta que la cierres.</p></div><button class="primary-btn" id="add-decision">+ Agregar decisión</button></div>
+        <div class="decision-intro" id="decision-intro"></div>
+        <div id="decision-list"></div>
+      </section>
+  <footer>ASADO EN MARCHA <span>·</span> Panorama 2026-11-17.6 · recomendaciones dinámicas</footer>
+    </main>
+  </div>
+  <dialog id="item-dialog"><form method="dialog" id="item-form"><div class="dialog-head"><div><span class="kicker">NUEVO PRODUCTO</span><h2>Sumar a la lista</h2></div><button type="button" class="icon-btn" data-close>×</button></div><label>Nombre<input name="name" required placeholder="Ej. Pan"></label><div class="dialog-grid"><label>Categoría<select name="category"><option>Parrilla</option><option>Entrada</option><option>Ensaladas</option><option>Bebidas</option><option>Postre</option><option>Otros</option></select></label><label>Unidad<select name="unit"><option value="kg">kg</option><option value="u">unidades</option><option value="planta">plantas</option><option value="L">litros</option><option value="paq">paquetes</option></select></label></div><label>Meta (dejar vacío si falta definir)<input name="target" type="number" min="0" step="any" placeholder="Por definir"></label><label>Nota<input name="note" placeholder="Detalle o duda"></label><button class="primary-btn" value="save">Agregar producto</button></form></dialog>
+  <script src="app.js?v=20261117.6"></script>
+</body>
+</html>
