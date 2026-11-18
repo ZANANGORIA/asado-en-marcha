@@ -202,7 +202,97 @@ test("sigue siendo estática y conserva respaldo visible en móvil", () => {
   const css = fs.readFileSync(path.join(__dirname, "../dist/styles.css"), "utf8");
   assert.match(html, /<script src="app\.js\?v=20261117\.6"><\/script>/);
   assert.doesNotMatch(html, /<script[^>]+https?:/);
-  assert.match(css, /@media\(max-width:760px\)\{\.rail-bottom\{di…1304 tokens truncated…");
+  assert.match(css, /@media\(max-width:760px\)\{\.rail-bottom\{display:flex/);
+  assert.match(css, /@import url\('https:\/\/fonts\.googleapis\.com/);
+});
+
+const foodIds = ["vacio","punta","ribs","pork","chor","morc","rusa","tomato","lettuce","bread","emp","bonbon"];
+
+test("nueve tarjetas comparten el motor y mantienen metas y compras", () => {
+  const h=harness(),initial=h.element("metrics").innerHTML;
+  h.change({value:"44",dataset:{guest:"adults"}});
+  assert.equal((initial.match(/class="metric"/g)||[]).length,9);
+  for(const [number,label] of [
+    ["55","Invitados"],["99 u","Empanadas recomendadas"],
+    ["9 kg","Carne vacuna recomendada"],["5 kg","Carne de cerdo recomendada"],
+    ["30 u","Chorizos recomendados"],["12 u","Morcillas recomendadas"],
+    ["5 kg","Ensalada rusa recomendada"],["55 u","Palitos bombón recomendados"]
+  ])assert.ok(initial.includes("<strong>"+number+"</strong><b>"+label),label);
+  assert.match(initial,/3,5 kg tomate · 6 plantas lechuga/);
+  const before=h.saved().items.map(x=>[x.id,x.target,x.bought]);
+  for(const adults of [10,49,100]){
+    h.change({value:String(adults),dataset:{guest:"adults"}});
+    const html=h.element("metrics").innerHTML;
+    assert.equal((html.match(/class="metric"/g)||[]).length,9);
+    assert.equal(h.recommendedNumber("emp"),adults*2+11);
+    assert.match(html,/Carne vacuna recomendada/);
+    assert.match(html,/Ensalada mixta recomendada/);
+    assert.deepEqual(h.saved().items.map(x=>[x.id,x.target,x.bought]),before);
+  }
+  h.change({value:"44",dataset:{guest:"adults"}});
+  assert.equal(h.element("metrics").innerHTML,initial);
+  assert.match(h.element("shopping-list").innerHTML,/planificado:/);
+  assert.ok(h.element("production-list").innerHTML.length>0);
+});
+
+test("Caso A: Navidad 2026, recomendaciones por corte, acompañamientos y totales coherentes", () => {
+  const h = harness();
+  assert.equal(h.element("hero-guests").textContent, "55");
+  assert.match(h.element("metrics").innerHTML, /<strong>55<\/strong><b>Invitados/);
+  const expected = {vacio:5,punta:4,ribs:3,pork:2,chor:30,morc:12,rusa:5,tomato:3.5,lettuce:6,bread:4,emp:99,bonbon:55};
+  for (const [id, value] of Object.entries(expected)) assert.equal(h.recommendedNumber(id),value,id);
+  assert.match(h.element("metrics").innerHTML, /<strong>9 kg<\/strong><b>Carne vacuna recomendada/);
+  assert.match(h.element("metrics").innerHTML, /<strong>5 kg<\/strong><b>Carne de cerdo recomendada/);
+  assert.match(h.recommendation("emp"), /planificado: 100 u/);
+  assert.match(h.recommendation("bonbon"), /planificado: 60 u/);
+});
+
+test("Caso B: cinco adultos más aumentan o mantienen todas las recomendaciones", () => {
+  const h = harness();
+  const before = Object.fromEntries(foodIds.map(id => [id,h.recommendedNumber(id)]));
+  h.input({value:"49",dataset:{guest:"adults"}});
+  assert.equal(h.element("hero-guests").textContent,"60");
+  assert.equal(h.recommendedNumber("emp"),109);
+  for(const id of foodIds)assert.ok(h.recommendedNumber(id)>=before[id],id);
+  assert.equal(h.saved().items.find(x => x.id==="emp").target,100);
+});
+
+test("Casos C y D: quitar invitados reduce recomendaciones; cero no divide por cero", () => {
+  const h = harness();
+  const before = Object.fromEntries(foodIds.map(id => [id,h.recommendedNumber(id)]));
+  h.change({value:"20",dataset:{guest:"adults"}});
+  h.change({value:"0",dataset:{guest:"children"}});
+  for(const id of foodIds)assert.ok(h.recommendedNumber(id)>=0 && h.recommendedNumber(id)<=before[id],id);
+  h.change({value:"0",dataset:{guest:"adults"}});
+  assert.equal(h.element("hero-guests").textContent,"0");
+  for(const id of foodIds)assert.equal(h.recommendedNumber(id),0,id);
+  assert.doesNotMatch(h.element("metrics").innerHTML,/NaN|Infinity/);
+});
+
+test("Caso E: compra y plan no cambian hasta adoptar una recomendación", () => {
+  const h = harness();
+  h.itemChange("emp","bought","40");
+  h.change({value:"49",dataset:{guest:"adults"}});
+  assert.equal(h.recommendedNumber("emp"),109);
+  assert.equal(h.saved().items.find(x=>x.id==="emp").target,100);
+  assert.equal(h.saved().items.find(x=>x.id==="emp").bought,40);
+  assert.match(h.element("shopping-list").innerHTML,/Faltan 60 u/);
+  h.action("emp","accept-recommendation");
+  assert.equal(h.saved().items.find(x=>x.id==="emp").target,109);
+  assert.equal(h.saved().items.find(x=>x.id==="emp").bought,40);
+  assert.match(h.element("shopping-list").innerHTML,/Faltan 69 u/);
+});
+
+test("Caso F: cambios sucesivos vuelven exactamente a las mismas recomendaciones", () => {
+  const h = harness();
+  const original = Object.fromEntries(foodIds.map(id=>[id,h.recommendedNumber(id)]));
+  for(const adults of ["49","12","68","44"])h.change({value:adults,dataset:{guest:"adults"}});
+  for(const id of foodIds)assert.equal(h.recommendedNumber(id),original[id],id);
+});
+
+test("Caso G: editar una tasa modifica sólo ese alimento y sus totales; chorizo chico sustituye al grande", () => {
+  const h = harness();
+  const tomato=h.recommendedNumber("tomato");
   h.consumptionChange("vacio","rate","120");
   assert.equal(h.recommendedNumber("vacio"),6);
   assert.equal(h.recommendedNumber("punta"),4);

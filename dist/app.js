@@ -112,7 +112,240 @@
   var storageIssue=false;
   try {
     var saved=localStorage.getItem(KEY);
-    state=saved===null?newPlan():JSON.parse(saved)…5948 tokens truncated…acity-banner");
+    state=saved===null?newPlan():JSON.parse(saved);
+    if(!validPlan(state,true))throw Error("Saved plan is incomplete");
+    state=enrichPlan(state);
+  } catch(e) { state=newPlan();storageIssue=true; }
+  var filter="todos";
+  function save(){
+    if(storageIssue)return;
+    try {localStorage.setItem(KEY,JSON.stringify(state));}
+    catch(e){storageIssue=true;}
+  }
+  function renderStorageNotice(){
+    var el=document.getElementById("storage-warning");
+    el.hidden=!storageIssue;
+    if(storageIssue)el.textContent="No se pudieron leer o guardar los datos de este navegador. El registro anterior no se reemplazó. Importá un respaldo válido para recuperar el guardado.";
+  }
+  function esc(x){return String(x == null ? "" : x).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+  function n(v){if(v===null || v===undefined || v==="")return null;var x=Number(v);return Number.isFinite(x) && x>=0?x:null;}
+  function fmt(v,d){return Number(v).toLocaleString("es-AR",{maximumFractionDigits:d==null?1:d});}
+  function item(id){return state.items.find(function(x){return x.id===id;});}
+  function guests(){return Number(state.guests.children||0)+Number(state.guests.teens||0)+Number(state.guests.adults||0);}
+  function equivalents(){return Number(state.guests.children||0)*Number(state.assumptions.childWeight||0)+Number(state.guests.teens||0)*Number(state.assumptions.teenWeight||0)+Number(state.guests.adults||0)*Number(state.assumptions.adultWeight===undefined?1:state.assumptions.adultWeight);}
+  function recommended(x){
+    var c=x&&x.consumption,raw;
+    if(!c || c.mode==="none")return null;
+    if(c.mode==="equivalent")raw=c.rate===null?null:equivalents()*c.rate;
+    if(c.mode==="guest")raw=c.rate===null?null:guests()*c.rate;
+    if(c.mode==="groups")raw=["adults","teens","children"].reduce(function(sum,k){return sum===null || c.rates[k]===null?null:sum+state.guests[k]*c.rates[k];},0);
+    if(c.mode==="chorizo"){var rate=c.size==="chico"?c.smallRate:c.largeRate;raw=rate===null?null:equivalents()*rate;}
+    if(raw===null || !Number.isFinite(raw))return null;
+    if(raw<=0)return 0;
+    return x.unit==="kg" || x.unit==="L" ? Math.max(1,Math.ceil(raw*10-1e-9))/10 : Math.max(1,Math.ceil(raw-1e-9));
+  }
+  function legacyMeat(x){
+    if(!x)return false;
+    var name=String(x.name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase();
+    return ["beef","tapa"].includes(x.id)||/^(vacuno|tapa de asado)(?:\b|$)/.test(name);
+  }
+  function legacyHasAmounts(x){return ["target","bought","prepared"].some(function(k){return n(x[k])!==null;});}
+  function legacyNeedsReview(x){return legacyMeat(x)&&legacyHasAmounts(x);}
+  function meatCuts(group){
+    return state.items.filter(function(x){return x.category==="Parrilla"&&x.unit==="kg"&&x.meatGroup===group&&!legacyMeat(x);});
+  }
+  function dashboardMeat(group){
+    var cuts=meatCuts(group);
+    if(!cuts.length)return null;
+    var amounts=cuts.map(recommended);
+    return amounts.some(function(v){return v===null;})?null:Math.round(amounts.reduce(function(a,b){return a+b;},0)*10)/10;
+  }
+  function plannedMeatGroup(group){
+    var cuts=meatCuts(group);
+    return cuts.length&&cuts.every(function(x){return n(x.target)!==null;})?
+      Math.round(cuts.reduce(function(sum,x){return sum+Number(x.target);},0)*10)/10:null;
+  }
+  function hasLegacyReview(){return state.items.some(legacyNeedsReview);}
+  function dashboardCard(label,value,planned,unit){
+    var amount=value===null?"Sin estimación":fmt(value,unit==="u"?0:1)+(unit?" "+unit:"");
+    return '<div class="metric"><div class="icon">◌</div><strong>'+esc(amount)+'</strong><b>'+esc(label)+'</b>'+
+      (planned===null?"":'<small>Planificado: '+esc(fmt(planned)+(unit?" "+unit:""))+'</small>')+'</div>';
+  }
+  function plannedMeat(){
+    if(hasLegacyReview())return null;
+    var beef=plannedMeatGroup("beef"),pork=plannedMeatGroup("pork");
+    return beef===null||pork===null?null:beef+pork;
+  }
+  function unitText(x,amount){return x.unit==="planta"&&amount!==1?"plantas":x.unit;}
+  function recommendationText(x){
+    var rec=recommended(x),planned=n(x.target);
+    if(rec===null)return "Recomendación: falta configurar tasa";
+    return "Recomendado: "+fmt(rec)+" "+unitText(x,rec)+(x.consumption&&x.consumption.mode==="chorizo"?" (tamaño "+x.consumption.size+")":"")+" · planificado: "+(planned===null?"por definir":fmt(planned)+" "+unitText(x,planned))+
+      (planned===null?"":" · diferencia: "+(planned-rec>0?"+":"")+fmt(planned-rec)+" "+unitText(x,Math.abs(planned-rec)));
+  }
+  function updateConsumption(x,field,value){
+    if(field==="mode"){
+      x.consumption=value==="groups"?{mode:"groups",rates:{adults:null,teens:null,children:null}}:
+        value==="equivalent"||value==="guest"?{mode:value,rate:null}:{mode:"none"};
+      return;
+    }
+    var c=x.consumption;if(!c)return;
+    if(field==="size"){c.size=value;return;}
+    var rate=n(value),scaled=x.unit==="kg"&&rate!==null?rate/1000:rate;
+    if(field==="chorizoRate")c[c.size==="chico"?"smallRate":"largeRate"]=rate;
+    else if(field==="rate")c.rate=scaled;
+    else if(c.mode==="groups")c.rates[field]=scaled;
+  }
+  function amountText(x){return n(x.target)===null?"por definir":fmt(x.target)+" "+unitText(x,x.target);}
+  function categoryText(category){return state.items.filter(function(x){return x.category===category;}).map(function(x){return esc(x.name)+" ("+amountText(x)+")";}).join(" · ") || "Sin productos cargados";}
+  function cooked(){
+    if(hasLegacyReview())return null;
+    return state.items.filter(function(x){return x.category==="Parrilla" && x.unit==="kg" && !legacyMeat(x) && n(x.target)!==null && n(x.yield)!==null;}).reduce(function(a,x){return a+Number(x.target)*Number(x.yield);},0);
+  }
+  function badge(b){return b==="confirmed"?'<span class="tag confirmed">Confirmado</span>':b==="estimated"?'<span class="tag estimated">Estimación</span>':'<span class="tag review">Por revisar</span>';}
+  function setHTML(id,html){document.getElementById(id).innerHTML=html;}
+  function renderOverview(preserveEditors){
+    var total=guests(),eq=equivalents(),emp=item("emp"),empCount=emp&&n(emp.target)!==null?emp.target:null,empRec=recommended(emp);
+    var beefRec=dashboardMeat("beef"),porkRec=dashboardMeat("pork"),principalRec=(beefRec||0)+(porkRec||0);
+    var planned=plannedMeat(),meatComparison=planned===null?"Plan crudo sin validar: revisá cantidades sin definir y registros anteriores pendientes.":"Planificado crudo: "+fmt(planned)+" kg · diferencia plan − recomendado: "+fmt(planned-principalRec)+" kg.";
+    var cookedGoal=eq*Number(state.assumptions.meatGrams||0)/1000;
+    document.getElementById("hero-guests").textContent=fmt(total,0);
+    document.getElementById("event-summary").textContent="Comienza "+(state.eventStart||"por definir")+" · fecha por definir";
+    document.getElementById("hero-menu").textContent=["Entrada","Parrilla","Ensaladas","Postre"].filter(function(group){return state.items.some(function(x){return x.category===group;});}).map(function(group){return group==="Parrilla"?"Asado":group;}).join(" · ") || "Sin menú cargado";
+    var pending=state.items.filter(function(x){return n(x.target)===null || n(x.bought)===null || x.bought<x.target;}).length;
+    var single=function(id,label,unit){var x=item(id);return dashboardCard(label,recommended(x),x?n(x.target):null,unit);};
+    var tomato=item("tomato"),lettuce=item("lettuce"),tomatoRec=recommended(tomato),lettuceRec=recommended(lettuce);
+    var mixed=tomatoRec===null||lettuceRec===null?"Sin estimación":fmt(tomatoRec)+" kg tomate · "+fmt(lettuceRec,0)+" plantas lechuga";
+    var mixedPlan=tomato&&lettuce&&n(tomato.target)!==null&&n(lettuce.target)!==null?
+      "Planificado: "+fmt(tomato.target)+" kg tomate · "+fmt(lettuce.target)+" plantas lechuga":"";
+    setHTML("metrics",
+      dashboardCard("Invitados",total,null,"")+
+      single("emp","Empanadas recomendadas","u")+
+      dashboardCard("Carne vacuna recomendada (kg crudos)",beefRec,plannedMeatGroup("beef"),"kg")+
+      dashboardCard("Carne de cerdo recomendada (kg crudos)",porkRec,plannedMeatGroup("pork"),"kg")+
+      single("chor","Chorizos recomendados","u")+
+      single("morc","Morcillas recomendadas","u")+
+      single("rusa","Ensalada rusa recomendada","kg")+
+      '<div class="metric"><div class="icon">◌</div><strong class="mixed-amount">'+esc(mixed)+'</strong><b>Ensalada mixta recomendada</b>'+(mixedPlan?'<small>'+esc(mixedPlan)+'</small>':"")+'</div>'+
+      single("bonbon","Palitos bombón recomendados","u"));
+    if(!preserveEditors)setHTML("guest-fields",
+      [['children','Niños'],['teens','Adolescentes'],['adults','Adultos']].map(function(a){return '<label>'+a[1]+'<input type="number" min="0" step="1" data-guest="'+a[0]+'" value="'+esc(state.guests[a[0]])+'"></label>';}).join(""));
+    if(!preserveEditors)setHTML("assumptions",
+      [['adultWeight','Peso adulto (equiv.)',0.1],['teenWeight','Peso adolescente (equiv.)',0.1],['childWeight','Peso niño (equiv.)',0.1],['meatGrams','Referencia carne cocida / equiv. (g)',10]].map(function(a){return '<label>'+a[1]+'<input type="number" min="0" step="'+a[2]+'" data-assumption="'+a[0]+'" value="'+esc(state.assumptions[a[0]])+'"></label>';}).join(""));
+    var cookedAmount=cooked();
+    document.getElementById("cooked-note").textContent=cookedAmount===null?
+      "Cocido sin estimar: hay registros anteriores de Vacuno o Tapa de asado con cantidades guardadas. Están fuera de los subtotales nuevos hasta revisarlos, para evitar duplicaciones.":
+      "Estimación separada del plan elegido: "+fmt(cookedAmount,1)+" kg cocidos según rendimiento; referencia cocida "+fmt(cookedGoal,1)+" kg. "+meatComparison+" La compra recomendada de cortes usa peso crudo.";
+    var grillItems=state.items.filter(function(x){return x.category==="Parrilla";}),legacyItems=state.items.filter(legacyMeat);
+    var otherGrill=grillItems.filter(function(x){return !legacyMeat(x)&&!(x.unit==="kg"&&(x.meatGroup==="beef"||x.meatGroup==="pork"));});
+    var otherGrillText=otherGrill.map(function(x){return esc(x.name)+" ("+amountText(x)+")";}).join(" · ")||"Sin otros productos cargados";
+    var legacyText=legacyItems.map(function(x){
+      var amounts=["target","bought","prepared"].filter(function(k){return n(x[k])!==null;}).map(function(k){return {target:"planificado",bought:"comprado",prepared:"preparado"}[k]+" "+fmt(x[k])+" kg";});
+      return esc(x.name)+" ("+(amounts.join(" · ")||"sin cantidades registradas")+") — "+(legacyNeedsReview(x)?"pendiente de revisión; excluido de subtotales para evitar duplicar cantidades":"registro anterior conservado, fuera de subtotales");
+    }).join("<br>");
+    var beefCuts=meatCuts("beef"),porkCuts=meatCuts("pork");
+    function meatMenuCard(label,cuts,group){
+      var rec=dashboardMeat(group),plan=plannedMeatGroup(group);
+      var list=cuts.length?cuts.map(function(x){var name=x.id==="pork"&&/^Matambrito de cerdo$/i.test(x.name)?"Matambrito":x.name;return esc(name)+" ("+amountText(x)+")";}).join(" · "):"Sin cortes cargados.";
+      return '<div class="menu-card"><span>♨</span><h3>'+label+'</h3><p>'+list+'</p><p><strong>Subtotal recomendado:</strong> '+(rec===null?"sin estimación":fmt(rec)+" kg crudos")+'<br><strong>Subtotal planificado:</strong> '+(plan===null?"por definir":fmt(plan)+" kg crudos")+'</p></div>';
+    }
+    setHTML("menu-overview",
+      '<div class="menu-card"><span>🥟</span><h3>Entrada</h3><p>'+categoryText("Entrada")+'.</p></div>'+
+      meatMenuCard("Carne vacuna",beefCuts,"beef")+
+      meatMenuCard("Carne de cerdo",porkCuts,"pork")+
+      '<div class="menu-card"><span>♨</span><h3>Otros de parrilla</h3><p>'+otherGrillText+'.</p></div>'+
+      (legacyItems.length?'<div class="menu-card"><span>!</span><h3>Revisión de registros anteriores</h3><p>'+legacyText+'</p></div>':"")+
+      '<div class="menu-card"><span>🥗</span><h3>Guarnición</h3><p>'+categoryText("Ensaladas")+'.</p></div>'+
+      '<div class="menu-card"><span>✦</span><h3>Postre y bebidas</h3><p>'+categoryText("Postre")+'. Bebidas: '+categoryText("Bebidas")+'.</p></div>');
+  }
+  function consumptionFields(x){
+    if(x.category==="Bebidas")return "";
+    var c=x.consumption||{mode:"none"};
+    if(c.mode==="chorizo"){
+      var size=c.size==="chico"?"chico":"grande",rate=size==="chico"?c.smallRate:c.largeRate;
+      return '<label>Tamaño de chorizo<select data-consumption="size"><option value="grande" '+(size==="grande"?"selected":"")+'>Grande</option><option value="chico" '+(size==="chico"?"selected":"")+'>Chico</option></select></label>'+
+        '<label>Unidades / adulto equivalente<input type="number" min="0" step=".01" data-consumption="chorizoRate" placeholder="Definir tasa" value="'+(rate===null?"":esc(rate))+'"></label>';
+    }
+    var fields='<label>Regla de consumo<select data-consumption="mode"><option value="none" '+(c.mode==="none"?"selected":"")+'>Sin regla</option><option value="equivalent" '+(c.mode==="equivalent"?"selected":"")+'>Por adulto equivalente</option><option value="guest" '+(c.mode==="guest"?"selected":"")+'>Por invitado</option><option value="groups" '+(c.mode==="groups"?"selected":"")+'>Por grupo de edad</option></select></label>';
+    if(c.mode==="equivalent"||c.mode==="guest"){
+      var grams=x.unit==="kg";
+      fields+='<label>Consumo '+(grams?"g":esc(x.unit))+' / '+(c.mode==="guest"?"invitado":"adulto equivalente")+'<input type="number" min="0" step="'+(grams?"1":".01")+'" data-consumption="rate" placeholder="Definir tasa" value="'+(c.rate===null?"":esc(grams?c.rate*1000:c.rate))+'"></label>';
+    }
+    if(c.mode==="groups"){
+      ["adults","teens","children"].forEach(function(k){
+        var label={adults:"Adulto",teens:"Adolescente",children:"Niño"}[k],grams=x.unit==="kg";
+        fields+='<label>'+label+' ('+(grams?"g":esc(x.unit))+')<input type="number" min="0" step="'+(grams?"1":".01")+'" data-consumption="'+k+'" placeholder="Definir" value="'+(c.rates[k]===null?"":esc(grams?c.rates[k]*1000:c.rates[k]))+'"></label>';
+      });
+    }
+    return fields;
+  }
+  function renderShopping(){
+    document.getElementById("recipe-note").hidden=!item("emp");
+    var expanded=Array.from(document.querySelectorAll("#shopping-list details[open]")).map(function(x){return x.closest("[data-item-id]").dataset.itemId;});
+    var groups=[
+      {name:"Carne vacuna",match:function(x){return x.category==="Parrilla"&&x.unit==="kg"&&x.meatGroup==="beef"&&!legacyMeat(x);}},
+      {name:"Carne de cerdo",match:function(x){return x.category==="Parrilla"&&x.unit==="kg"&&x.meatGroup==="pork"&&!legacyMeat(x);}},
+      {name:"Pendientes de revisión",match:legacyMeat},
+      {name:"Otros de parrilla",match:function(x){return x.category==="Parrilla"&&!legacyMeat(x)&&!(x.unit==="kg"&&(x.meatGroup==="beef"||x.meatGroup==="pork"));}},
+      {name:"Entrada",match:function(x){return x.category==="Entrada";}},
+      {name:"Ensaladas",match:function(x){return x.category==="Ensaladas";}},
+      {name:"Bebidas",match:function(x){return x.category==="Bebidas";}},
+      {name:"Postre",match:function(x){return x.category==="Postre";}},
+      {name:"Otros",match:function(x){return x.category==="Otros";}}
+    ],visible=state.items.filter(function(x){
+      if(filter==="pendientes")return n(x.target)!==null && (n(x.bought)===null || x.bought<x.target);
+      if(filter==="comprados")return n(x.bought)!==null && x.bought>0;
+      if(filter==="averiguar")return n(x.target)===null;
+      return true;
+    });
+    document.querySelectorAll("#filters button").forEach(function(b){b.classList.toggle("active",b.dataset.filter===filter);});
+    document.getElementById("shopping-summary").textContent=visible.length+" productos · "+state.items.filter(function(x){return n(x.target)===null;}).length+" metas sin definir";
+    setHTML("shopping-list",groups.map(function(group){
+      var entries=visible.filter(group.match);
+      if(!entries.length)return "";
+      return '<div class="group-title">'+group.name+'<small>'+entries.length+' productos</small></div>'+entries.map(function(x){
+        var t=n(x.target),b=n(x.bought),p=n(x.prepared),status=t===null?'<span class="status unknown">Meta por averiguar</span>':b===null?'<span class="status unknown">Compra sin registrar</span>':b<t?'<span class="status missing">Faltan '+fmt(t-b)+' '+esc(unitText(x,t-b))+'</span>':b>t?'<span class="status missing">Exceso +'+fmt(b-t)+' '+esc(unitText(x,b-t))+'</span>':'<span class="status ok">Compra completa</span>';
+        var rec=recommended(x),oldRecord=legacyMeat(x),oldStatus=oldRecord?(legacyNeedsReview(x)?" · registro anterior pendiente de revisión; fuera de subtotales":" · registro anterior conservado; fuera de subtotales"):"";
+        var recommendation=x.category==="Bebidas"?"":oldRecord?'<small>Registro anterior excluido de subtotales para evitar duplicaciones.</small>':'<small data-rec-id="'+esc(x.id)+'">'+esc(recommendationText(x))+'</small>';
+        return '<div class="shopping-card" data-item-id="'+esc(x.id)+'"><div class="item-name"><input aria-label="Nombre del producto" data-field="name" value="'+esc(x.name)+'"><small>'+esc(x.note||"Sin nota")+' · '+(x.basis==="confirmed"?"dato confirmado":x.basis==="estimated"?"estimación":"por revisar")+esc(oldStatus)+'</small></div>'+
+          '<label>Meta ('+esc(x.unit)+')<input type="number" min="0" step="any" placeholder="Sin definir" data-field="target" value="'+(t===null?"":esc(t))+'"></label>'+
+          '<label>Comprado<input type="number" min="0" step="any" placeholder="Sin registrar" data-field="bought" value="'+(b===null?"":esc(b))+'"></label>'+
+          '<label>Preparado<input type="number" min="0" step="any" placeholder="Sin registrar" data-field="prepared" value="'+(p===null?"":esc(p))+'"></label>'+
+          '<div><div>'+status+recommendation+'</div><div class="row-actions">'+(!oldRecord&&rec!==null&&t!==rec?'<button class="tiny-btn" data-action="accept-recommendation">Adoptar recomendado</button>':"")+'<button class="tiny-btn" data-action="mark-bought" '+(t===null||b!==null?'disabled title="Editá la cantidad comprada en el campo"':'')+'>'+(b===null?"Comprado":"Registrado")+'</button><button class="remove-btn" data-action="remove-item" aria-label="Quitar '+esc(x.name)+'">×</button></div></div>'+
+          '<details class="item-details"><summary>Detalles y criterio de esta cifra</summary><div class="details-grid"><label>Estado del dato<select data-field="basis"><option value="confirmed" '+(x.basis==="confirmed"?"selected":"")+'>Confirmado</option><option value="estimated" '+(x.basis==="estimated"?"selected":"")+'>Estimación</option><option value="review" '+(x.basis==="review"?"selected":"")+'>Por revisar</option></select></label><label>Nota<input data-field="note" value="'+esc(x.note||"")+'"></label>'+
+          (x.category==="Parrilla"?'<label>Tipo de carne<select data-field="meatType"><option value="beef" '+(x.meatType==="beef"?"selected":"")+'>Vacuno</option><option value="pork" '+(x.meatType==="pork"?"selected":"")+'>Cerdo</option><option value="other" '+(x.meatType==="other"?"selected":"")+'>Otro</option></select></label><label>Rendimiento cocido (0 a 1)<input type="number" min="0" max="1" step=".05" data-field="yield" placeholder="Sin estimar" value="'+(x.yield==null?"":esc(x.yield))+'"></label><label>Cocción (min)<input type="number" min="1" step="5" data-field="duration" placeholder="Por estimar" value="'+(x.duration==null?"":esc(x.duration))+'"></label>':"")+
+          consumptionFields(x)+'</div></details></div>';
+      }).join("");
+    }).join("") || '<div class="empty">No hay productos en esta vista.</div>');
+    document.querySelectorAll("#shopping-list [data-item-id]").forEach(function(row){if(expanded.includes(row.dataset.itemId))row.querySelector("details").open=true;});
+  }
+  function refreshRecommendationLabels(){
+    document.querySelectorAll("[data-rec-id]").forEach(function(el){
+      var x=item(el.dataset.recId);
+      if(x)el.textContent=recommendationText(x);
+    });
+  }
+  function minutes(s){var a=String(s||"").split(":");return a.length===2?Number(a[0])*60+Number(a[1]):null;}
+  function clock(m){if(m===null)return "—";var x=((m%1440)+1440)%1440;return String(Math.floor(x/60)).padStart(2,"0")+":"+String(x%60).padStart(2,"0");}
+  function relative(m){var start=minutes(state.eventStart);if(start===null)return "—";var d=m-start;return (d<0?"T−":"T+")+Math.floor(Math.abs(d)/60)+" h "+String(Math.abs(d)%60).padStart(2,"0");}
+  function renderProduction(){
+    document.getElementById("event-start").value=state.eventStart||"";
+    document.getElementById("serve-time").value=state.serveTime||"";
+    document.getElementById("grill-width").value=state.grillWidth==null?"":state.grillWidth;
+    document.getElementById("grill-depth").value=state.grillDepth==null?"":state.grillDepth;
+    var serve=minutes(state.serveTime),start=minutes(state.eventStart),w=n(state.grillWidth),d=n(state.grillDepth),area=w&&d?w*d:null;
+    document.getElementById("time-note").textContent=serve===null?"Definí la hora de servir para ver horarios.":start===null?"Falta la hora del evento.":"Servicio "+clock(serve)+" · "+relative(serve)+" desde el comienzo del evento.";
+    document.getElementById("space-note").textContent=area?"Superficie útil declarada: "+fmt(area,0)+" cm².":"Falta medir ancho y fondo útiles; la capacidad sigue sin validar.";
+    var tasks=state.items.filter(function(x){return x.category==="Parrilla" && n(x.target)!==null && n(x.target)>0 && n(x.duration)!==null;}).sort(function(a,b){return b.duration-a.duration;});
+    var allFoot=tasks.length>0 && tasks.every(function(x){return n(x.footWidth)>0&&n(x.footDepth)>0;});
+    var peak=0,peakAt=null;
+    if(area&&allFoot&&serve!==null){
+      for(var at=serve-600;at<=serve+240;at+=5){
+        var load=tasks.filter(function(x){return at>=serve-Number(x.lead||0)&&at<serve-Number(x.lead||0)+Number(x.duration||0);}).reduce(function(a,x){return a+x.footWidth*x.footDepth;},0);
+        if(load>peak){peak=load;peakAt=at;}
+      }
+    }
+    var banner=document.getElementById("capacity-banner");
     banner.className="capacity-banner"+(area&&allFoot&&peak>area?" alert":"");
     banner.innerHTML=!area?"<strong>Capacidad por medir.</strong> Registrá el ancho y el fondo útiles para evaluar las tandas.":
       !allFoot?"<strong>Parrilla: "+fmt(area,0)+" cm².</strong> Falta la huella de una o más tandas. Medí el espacio que ocupa cada tanda completa.":
